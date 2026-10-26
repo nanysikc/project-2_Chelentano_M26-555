@@ -1,5 +1,10 @@
+from primitive_db.engine import run
+
+
 def main():
-    print ("DB project is running")
+    """Запускает приложение базы данных."""
+    run()
+
 
 if __name__ == "__main__":
     main()
