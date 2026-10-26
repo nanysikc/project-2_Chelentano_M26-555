@@ -1,13 +1,14 @@
 import json
+from pathlib import Path
 
 
-def save_metadata(filepath, data):
+def save_metadata(filepath:str, data:dict):
     """Сохраняет метаданные таблиц в JSON-файл."""
     with open(filepath, 'w', encoding="utf-8") as file:
         json.dump(data, file, indent=4, ensure_ascii=False)
 
 
-def load_metadata(filepath):
+def load_metadata(filepath:str):
     """Загружает метаданные таблиц из JSON-файла."""
     try:
         with open(filepath, 'r', encoding="utf-8") as file:
@@ -18,5 +19,23 @@ def load_metadata(filepath):
         return {}
 
 
-result = load_metadata("nonexistent_file.json")
-print(result)
+def load_table_data(table_name: str) -> list:
+    """Загружает записи таблицы из JSON-файла."""
+    filepath = f"data/{table_name}.json"
+    try:
+        with open(filepath, 'r', encoding="utf-8") as file:
+            data = json.load(file)
+        return data
+
+    except FileNotFoundError:
+        return []
+
+
+def save_table_data(table_name: str, data: list):
+    """Сохраняет записи таблицы в JSON-файл."""
+    Path("data").mkdir(exist_ok=True)
+
+    filepath = f"data/{table_name}.json"
+
+    with open(filepath, 'w', encoding="utf-8") as file:
+        json.dump(data, file, indent=4, ensure_ascii=False)
