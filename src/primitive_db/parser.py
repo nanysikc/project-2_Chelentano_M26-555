@@ -16,7 +16,7 @@ def parse_value(value: str):
         return True
     if value == "false":
         return False
-    
+
     raise ValueError(f"Некорректное значение: {value}")
 
 

@@ -1,5 +1,7 @@
 from prettytable import PrettyTable
+from prompt import string
 
+from primitive_db.constants import METADATA_FILE, PYTHON_TYPES
 from primitive_db.core import (
     create_table,
     delete,
@@ -10,6 +12,7 @@ from primitive_db.core import (
     select,
     update,
 )
+from primitive_db.decorators import create_cacher
 from primitive_db.parser import parse_values, parse_where
 from primitive_db.utils import (
     load_metadata,
@@ -23,11 +26,12 @@ def run():
     """Запрашивает и обрабатывает команды пользователя."""
 
     # Здесь загружаем metadata
-    metadata = load_metadata("db_meta.json")
+    metadata = load_metadata(METADATA_FILE)
+    cached_call, clear_cache = create_cacher()
 
     while True:
         # Здесь обрабатываем команды
-        command = input("Введите команду: ")
+        command = string("Введите команду: ")
         parts = command.split()
 
         if not parts:
@@ -36,7 +40,19 @@ def run():
         if command == "exit":
             break
         elif command == "help":
-            print("exit — завершить программу.\nhelp — показать список команд.")
+            print(
+                "Доступные команды:\n"
+                "  help — показать справку\n"
+                "  exit — завершить программу\n"
+                "  create_table <name> <column:type> ... — создать таблицу\n"
+                "  drop_table <name> — удалить таблицу\n"
+                "  list_tables — показать таблицы\n"
+                "  info <name> — информация о таблице\n"
+                '  insert into <name> values ("Anna", 23) — добавить запись\n'
+                "  select from <name> [where age = 23] — найти записи\n"
+                "  update <name> set age = 24 where ID = 1 — изменить записи\n"
+                "  delete from <name> where ID = 1 — удалить записи"
+            )
 
         elif parts[0] == "create_table":
             if len(parts) < 2:
@@ -57,14 +73,15 @@ def run():
                 if not column_parts[0] or not column_parts[1]:
                     print("Пустое название или пустой тип")
                     break
-                
+
                 columns[column_parts[0]] = column_parts[1]
 
             else:
                 result = create_table(metadata, table_name, columns)
 
                 if result is not None:
-                    save_metadata("db_meta.json", result)
+                    save_metadata(METADATA_FILE, result)
+                    clear_cache()
 
         elif command == "list_tables":
             list_tables(metadata)
@@ -78,7 +95,8 @@ def run():
             result = drop_table(metadata, table_name)
 
             if result is not None:
-                save_metadata("db_meta.json", result)
+                save_metadata(METADATA_FILE, result)
+                clear_cache()
                 print(f'Таблица "{table_name}" удалена')
 
         elif parts[0] == "insert":
@@ -92,7 +110,11 @@ def run():
 
             try:
                 values = parse_values(values_text)
-                insert(metadata, table_name, values)
+                new_id = insert(metadata, table_name, values)
+
+                if new_id is not None:
+                    clear_cache()
+
             except ValueError as error:
                 print(f"Ошибка: {error}")
 
@@ -110,7 +132,7 @@ def run():
             where_clause = None
 
             if len(parts) > 3:
-                if len(parts) < 7 or parts[3] != "where":
+                if parts[3] != "where":
                     print("Ошибка: неверный формат WHERE")
                     continue
 
@@ -126,8 +148,20 @@ def run():
                     print("Ошибка: такого столбца не существует")
                     continue
 
-            table_data = load_table_data(table_name)
-            records = select(table_data, where_clause)
+                column_name, value = where_clause
+                expected_type = PYTHON_TYPES[metadata[table_name][column_name]]
+
+                if type(value) is not expected_type:
+                    print(f"Ошибка: неверный тип данных для столбца {column_name}")
+                    continue
+
+            cache_key = (table_name, where_clause)
+
+            def execute_select():
+                table_data = load_table_data(table_name)
+                return select(table_data, where_clause)
+
+            records = cached_call(cache_key, execute_select)
 
             table = PrettyTable()
             table.field_names = list(metadata[table_name].keys())
@@ -138,7 +172,7 @@ def run():
             print(table)
 
         elif parts[0] == "update":
-            if len(parts) < 8 or parts[2] != "set" or "where" not in parts:
+            if len(parts) < 5 or parts[2] != "set" or "where" not in parts:
                 print('Использование: update users set age = 29 where name = "Max"')
                 continue
 
@@ -167,13 +201,11 @@ def run():
                 print("Ошибка: изменение ID запрещено")
                 continue
 
-            python_types = {"int": int, "str": str, "bool": bool}
-
-            if type(new_value) is not python_types[columns[set_column]]:
+            if type(new_value) is not PYTHON_TYPES[columns[set_column]]:
                 print(f"Ошибка: неверный тип данных для столбца {set_column}")
                 continue
 
-            if type(where_value) is not python_types[columns[where_column]]:
+            if type(where_value) is not PYTHON_TYPES[columns[where_column]]:
                 print(f"Ошибка: неверный тип данных для столбца {where_column}")
                 continue
 
@@ -187,9 +219,13 @@ def run():
                 where_value,
             )
 
-            save_table_data(table_name, table_data)
+            if updated_count is not None:
+                save_table_data(table_name, table_data)
 
-            print(f"Изменено записей: {updated_count}")
+                if updated_count > 0:
+                    clear_cache()
+
+                print(f"Изменено записей: {updated_count}")
 
         elif parts[0] == "delete":
             if len(parts) < 7 or parts[1] != "from" or parts[3] != "where":
@@ -216,9 +252,7 @@ def run():
                 print("Ошибка: такого столбца не существует")
                 continue
 
-            python_types = {"int": int, "str": str, "bool": bool}
-
-            if type(where_value) is not python_types[columns[where_column]]:
+            if type(where_value) is not PYTHON_TYPES[columns[where_column]]:
                 print(f"Ошибка: неверный тип данных для столбца {where_column}")
                 continue
 
@@ -226,7 +260,13 @@ def run():
 
             deleted_count = delete(table_data, where_column, where_value)
 
+            if deleted_count is None:
+                continue
+
             save_table_data(table_name, table_data)
+
+            if deleted_count > 0:
+                clear_cache()
 
             print(f"Удалено записей: {deleted_count}")
 
