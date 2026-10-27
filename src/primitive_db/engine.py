@@ -1,8 +1,22 @@
 from prettytable import PrettyTable
 
-from primitive_db.core import create_table, drop_table, insert, list_tables, select
-from primitive_db.parser import parse_values
-from primitive_db.utils import load_metadata, load_table_data, save_metadata
+from primitive_db.core import (
+    create_table,
+    delete,
+    drop_table,
+    info,
+    insert,
+    list_tables,
+    select,
+    update,
+)
+from primitive_db.parser import parse_values, parse_where
+from primitive_db.utils import (
+    load_metadata,
+    load_table_data,
+    save_metadata,
+    save_table_data,
+)
 
 
 def run():
@@ -83,8 +97,8 @@ def run():
                 print(f"Ошибка: {error}")
 
         elif parts[0] == "select":
-            if len(parts) != 3 or parts[1] != "from":
-                print("Использование: select from <название_таблицы>")
+            if len(parts) < 3 or parts[1] != "from":
+                print("Использование: select from users [where age = 25]")
                 continue
 
             table_name = parts[2]
@@ -93,8 +107,27 @@ def run():
                 print("Ошибка: таблица не существует")
                 continue
 
+            where_clause = None
+
+            if len(parts) > 3:
+                if len(parts) < 7 or parts[3] != "where":
+                    print("Ошибка: неверный формат WHERE")
+                    continue
+
+                where_text = command.split("where", 1)[1]
+
+                try:
+                    where_clause = parse_where(where_text)
+                except ValueError as error:
+                    print(f"Ошибка: {error}")
+                    continue
+
+                if where_clause[0] not in metadata[table_name]:
+                    print("Ошибка: такого столбца не существует")
+                    continue
+
             table_data = load_table_data(table_name)
-            records = select(table_data)
+            records = select(table_data, where_clause)
 
             table = PrettyTable()
             table.field_names = list(metadata[table_name].keys())
@@ -103,6 +136,106 @@ def run():
                 table.add_row([record[name] for name in table.field_names])
 
             print(table)
+
+        elif parts[0] == "update":
+            if len(parts) < 8 or parts[2] != "set" or "where" not in parts:
+                print('Использование: update users set age = 29 where name = "Max"')
+                continue
+
+            table_name = parts[1]
+
+            if table_name not in metadata:
+                print("Ошибка: таблица не существует")
+                continue
+
+            set_text, where_text = command.split(" set ", 1)[1].split(" where ", 1)
+
+            try:
+                set_column, new_value = parse_where(set_text)
+                where_column, where_value = parse_where(where_text)
+            except ValueError as error:
+                print(f"Ошибка: {error}")
+                continue
+
+            columns = metadata[table_name]
+
+            if set_column not in columns or where_column not in columns:
+                print("Ошибка: такого столбца не существует")
+                continue
+
+            if set_column == "ID":
+                print("Ошибка: изменение ID запрещено")
+                continue
+
+            python_types = {"int": int, "str": str, "bool": bool}
+
+            if type(new_value) is not python_types[columns[set_column]]:
+                print(f"Ошибка: неверный тип данных для столбца {set_column}")
+                continue
+
+            if type(where_value) is not python_types[columns[where_column]]:
+                print(f"Ошибка: неверный тип данных для столбца {where_column}")
+                continue
+
+            table_data = load_table_data(table_name)
+
+            updated_count = update(
+                table_data,
+                set_column,
+                new_value,
+                where_column,
+                where_value,
+            )
+
+            save_table_data(table_name, table_data)
+
+            print(f"Изменено записей: {updated_count}")
+
+        elif parts[0] == "delete":
+            if len(parts) < 7 or parts[1] != "from" or parts[3] != "where":
+                print("Использование: delete from users where ID = 4")
+                continue
+
+            table_name = parts[2]
+
+            if table_name not in metadata:
+                print("Ошибка: таблица не существует")
+                continue
+
+            where_text = command.split(" where ", 1)[1]
+
+            try:
+                where_column, where_value = parse_where(where_text)
+            except ValueError as error:
+                print(f"Ошибка: {error}")
+                continue
+
+            columns = metadata[table_name]
+
+            if where_column not in columns:
+                print("Ошибка: такого столбца не существует")
+                continue
+
+            python_types = {"int": int, "str": str, "bool": bool}
+
+            if type(where_value) is not python_types[columns[where_column]]:
+                print(f"Ошибка: неверный тип данных для столбца {where_column}")
+                continue
+
+            table_data = load_table_data(table_name)
+
+            deleted_count = delete(table_data, where_column, where_value)
+
+            save_table_data(table_name, table_data)
+
+            print(f"Удалено записей: {deleted_count}")
+
+        elif parts[0] == "info":
+            if len(parts) != 2:
+                print("Использование: info <название_таблицы>")
+                continue
+
+            info(metadata, parts[1])
 
         else:
             print("Неизвестная команда. Попробуйте снова.")

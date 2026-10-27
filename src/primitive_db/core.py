@@ -97,3 +97,58 @@ def select(table_data: list, where_clause=None):
     """Возвращает записи таблицы с учётом условия отбора."""
     if where_clause is None:
         return table_data
+
+    column_name, value = where_clause
+
+    return [
+        record
+        for record in table_data
+        if record.get(column_name) == value
+    ]
+
+
+def update(
+    table_data: list,
+    column_name: str,
+    new_value,
+    where_column: str,
+    where_value,
+) -> int:
+    """Изменяет записи, соответствующие условию."""
+    updated_count = 0
+
+    for record in table_data:
+        if record[where_column] == where_value:
+            record[column_name] = new_value
+            updated_count += 1
+
+    return updated_count
+
+
+def delete(table_data: list, where_column: str, where_value) -> int:
+    """Удаляет записи, соответствующие условию."""
+    original_count = len(table_data)
+
+    table_data[:] = [
+        record
+        for record in table_data
+        if record[where_column] != where_value
+    ]
+
+    return original_count - len(table_data)
+
+
+def info(metadata: dict, table_name: str):
+    """Выводит информацию о структуре и записях таблицы."""
+    if table_name not in metadata:
+        print("Ошибка: таблица не существует")
+        return
+
+    print(f"Таблица: {table_name}")
+    print("Столбцы:")
+
+    for column_name, column_type in metadata[table_name].items():
+        print(f"  {column_name}: {column_type}")
+
+    table_data = load_table_data(table_name)
+    print(f"Количество записей: {len(table_data)}")

@@ -41,6 +41,25 @@ def parse_values(values_text: str) -> list:
     return values
 
 
+def parse_where(where_text: str) -> tuple:
+    """Разбирает условие WHERE на столбец и значение."""
+    parts = where_text.strip().split("=", 1)
+
+    if len(parts) != 2:
+        raise ValueError("Условие должно содержать знак =")
+
+    column_name = parts[0].strip()
+    value_text = parts[1].strip()
+
+    if not column_name:
+        raise ValueError("Не указано название столбца")
+
+    value = parse_value(value_text)
+
+    return column_name, value
+
+
 if __name__ == "__main__":
-    print(parse_values('("Maria", 25, true)'))
-    print(parse_values('("Ivanov, Petr", 30, false)'))
+    print(parse_where("age = 25"))
+    print(parse_where('name = "Anna"'))
+    print(parse_where("active = true"))
